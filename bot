@@ -24,7 +24,7 @@ const RPC_URLS: [&str; 3] = [
     "https://solana-api.projectserum.com",
     "https://api.rpcpool.com",
 ];
-const FLASH_LOAN_PROGRAM_ID: &str = "YourFlashLoanProgramID";
+const FLASH_LOAN_PROGRAM_ID: &str = "4bcFeLv4X9YAB1XqE6hG8Z7XEy5JHfq2K6bc9az7XhL4";
 const BASE_PRIORITY_FEE: u64 = 5000;
 const MEV_PROTECTION_DELAY: u64 = 3000;
 const SLIPPAGE_THRESHOLD: f64 = 0.005;
@@ -35,8 +35,8 @@ const VOLATILITY_FACTOR: f64 = 1.2;
 const MEV_RISK_THRESHOLD: f64 = 0.02;
 const SUCCESS_THRESHOLD: f64 = 0.6;
 const TRADE_LOG_FILE: &str = "trade_log.csv";
-const TELEGRAM_BOT_TOKEN: &str = "YourTelegramBotToken";
-const TELEGRAM_CHAT_ID: &str = "YourChatID";
+const TELEGRAM_BOT_TOKEN: &str = "7971593311:AAGUGkRnvhIqff5VKPL-RCcB_1rQ-GsqYw8";
+const TELEGRAM_CHAT_ID: &str = "6486381311";
 const DEX_LIST: [&str; 3] = ["Raydium", "Orca", "Serum"];
 
 #[tokio::main]
