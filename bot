@@ -1,0 +1,131 @@
+use solana_client::rpc_client::RpcClient;
+use solana_sdk::pubkey::Pubkey;
+use solana_sdk::signature::{Keypair, Signer};
+use solana_sdk::transaction::Transaction;
+use solana_sdk::instruction::Instruction;
+use solana_sdk::commitment_config::CommitmentConfig;
+use solana_sdk::message::Message;
+use solana_sdk::system_instruction;
+use std::time::Duration;
+use std::str::FromStr;
+use rand::Rng;
+use linfa::prelude::*;
+use linfa_tensorflow::TensorflowModel;
+use linfa::dataset::Dataset;
+use tensorflow::{Session, SessionOptions, Graph, Operation, Tensor};
+use reqwest;
+use std::fs::OpenOptions;
+use std::io::Write;
+use teloxide::prelude::*;
+use tokio;
+
+const RPC_URLS: [&str; 3] = [
+    "https://api.mainnet-beta.solana.com",
+    "https://solana-api.projectserum.com",
+    "https://api.rpcpool.com",
+];
+const FLASH_LOAN_PROGRAM_ID: &str = "YourFlashLoanProgramID";
+const BASE_PRIORITY_FEE: u64 = 5000;
+const MEV_PROTECTION_DELAY: u64 = 3000;
+const SLIPPAGE_THRESHOLD: f64 = 0.005;
+const EXECUTION_THRESHOLD: f64 = 0.01;
+const PROFIT_LOCK_THRESHOLD: f64 = 0.015;
+const MAX_LEVERAGE: f64 = 10.0;
+const VOLATILITY_FACTOR: f64 = 1.2;
+const MEV_RISK_THRESHOLD: f64 = 0.02;
+const SUCCESS_THRESHOLD: f64 = 0.6;
+const TRADE_LOG_FILE: &str = "trade_log.csv";
+const TELEGRAM_BOT_TOKEN: &str = "YourTelegramBotToken";
+const TELEGRAM_CHAT_ID: &str = "YourChatID";
+const DEX_LIST: [&str; 3] = ["Raydium", "Orca", "Serum"];
+
+#[tokio::main]
+async fn main() {
+    let client = get_best_rpc_client();
+    let trader = Keypair::new();
+    
+    loop {
+        if let Some((dex, price_diff, liquidity)) = find_best_arbitrage_opportunity(&client) {
+            if price_diff > EXECUTION_THRESHOLD && liquidity > trade_size_threshold(price_diff) {
+                println!("Executing arbitrage on {} with price difference: {}", dex, price_diff);
+                std::thread::sleep(Duration::from_millis(randomized_mev_delay()));
+                if detect_sandwich_attack(&client, "TokenPubkey") || detect_high_slippage(&client, "TokenPubkey") {
+                    println!("Possible sandwich attack or high slippage detected. Skipping trade...");
+                    continue;
+                } 
+                if detect_mempool_risk(&client) {
+                    println!("High MEV risk detected. Skipping trade...");
+                    continue;
+                }
+                if !lock_profit(&client, price_diff) {
+                    println!("Profit below threshold. Skipping trade...");
+                    continue;
+                }
+                if !validate_on_chain_data(&client, "TokenPubkey") {
+                    println!("On-chain validation failed. Skipping trade...");
+                    continue;
+                }
+                let trade_size = calculate_trade_size_with_volatility(&client, price_diff);
+                let priority_fee = real_time_dynamic_priority_fee(&client, price_diff);
+                let predicted_success = predict_trade_success(price_diff, trade_size);
+                if predicted_success < SUCCESS_THRESHOLD {
+                    println!("Low predicted success probability: {}. Skipping trade...", predicted_success);
+                    continue;
+                }
+                let presigned_txn = pre_sign_transaction(&client, &trader, dex, price_diff, trade_size, priority_fee);
+                log_trade_feedback(price_diff, trade_size, predicted_success);
+                store_trade_feedback(price_diff, trade_size, predicted_success);
+                send_telegram_alert(price_diff, trade_size, predicted_success).await;
+                execute_presigned_transaction(&client, &presigned_txn);
+            }
+        }
+        std::thread::sleep(Duration::from_millis(randomized_delay()));
+    }
+}
+
+fn get_best_rpc_client() -> RpcClient {
+    let fastest_url = RPC_URLS.iter().min_by_key(|&&url| measure_rpc_latency(url)).unwrap();
+    RpcClient::new(fastest_url.to_string())
+}
+
+fn measure_rpc_latency(url: &str) -> u64 {
+    let start = std::time::Instant::now();
+    let client = RpcClient::new(url.to_string());
+    let _ = client.get_epoch_info();
+    start.elapsed().as_millis() as u64
+}
+
+fn pre_sign_transaction(client: &RpcClient, trader: &Keypair, dex: &str, price_diff: f64, trade_size: f64, priority_fee: u64) -> Transaction {
+    let instruction = Instruction::new_with_bincode(
+        Pubkey::from_str(FLASH_LOAN_PROGRAM_ID).unwrap(),
+        &(dex, price_diff, trade_size),
+        vec![trader.pubkey().into()],
+    );
+    let message = Message::new(&[instruction], Some(&trader.pubkey()));
+    let mut transaction = Transaction::new_unsigned(message);
+    transaction.sign(&[trader], client.get_latest_blockhash().unwrap());
+    transaction
+}
+
+fn execute_presigned_transaction(client: &RpcClient, transaction: &Transaction) {
+    match client.send_and_confirm_transaction(transaction) {
+        Ok(signature) => println!("Transaction executed successfully: {}", signature),
+        Err(e) => println!("Transaction failed: {:?}", e),
+    }
+}
+
+async fn send_telegram_alert(price_diff: f64, trade_size: f64, predicted_success: f64) {
+    let bot = Bot::new(TELEGRAM_BOT_TOKEN);
+    let message = format!(
+        "🚀 Arbitrage Trade Alert!\nDEX: {}
+Price Diff: {:.4}%\nTrade Size: {:.4} SOL\nSuccess Probability: {:.2}%", 
+        price_diff * 100.0, trade_size, predicted_success * 100.0
+    );
+    
+    if price_diff > EXECUTION_THRESHOLD && predicted_success > SUCCESS_THRESHOLD {
+        bot.send_message(TELEGRAM_CHAT_ID.parse().unwrap(), message)
+            .send()
+            .await
+            .expect("Failed to send Telegram message");
+    }
+}
